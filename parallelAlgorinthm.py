@@ -38,7 +38,7 @@ def main():
 
     # 1. Загрузка данных
     data_load_start = time.time()
-    df = load_data('2.5_day.csv')
+    df = load_data('query.csv')
 
     # Автоматическая фильтрация (берем все данные)
     X = df[['longitude', 'latitude']].values

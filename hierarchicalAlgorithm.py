@@ -43,7 +43,7 @@ def main():
 
     # 1. Загрузка и очистка данных
     data_load_start = time.time()
-    df = load_and_clean_data('query (1).csv')
+    df = load_and_clean_data('query.csv')
 
     if len(df) == 0:
         raise ValueError("После очистки не осталось данных для анализа!")
