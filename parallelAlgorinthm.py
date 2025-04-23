@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
 from scipy.cluster.hierarchy import dendrogram, linkage
-from sklearn.datasets import make_blobs
 from sklearn.cluster import AgglomerativeClustering
 import time
 from joblib import parallel_backend
@@ -9,85 +9,80 @@ from joblib import parallel_backend
 
 def get_user_input():
     """Функция для ввода параметров пользователем."""
-    print("Настройте параметры датасета и кластеризации:")
-    n_samples = int(input("Количество точек (например, 150): ") or 150)
-    n_centers = int(input("Количество кластеров (например, 3): ") or 3)
-    cluster_std = float(input("Разброс кластеров (например, 0.8): ") or 0.8)
-    random_state = int(input("Random state (например, 42, или 0 для случайного): ") or 42)
-    n_clusters = int(input("Число кластеров для агломеративной кластеризации: ") or n_centers)
+    print("Настройте параметры кластеризации:")
+    min_magnitude = float(input("Минимальная магнитуда для фильтрации (например, 3.0): ") or 3.0)
+    n_clusters = int(input("Число кластеров для агломеративной кластеризации: ") or 3)
+    return min_magnitude, n_clusters
 
-    return n_samples, n_centers, cluster_std, random_state, n_clusters
+
+def load_and_filter_data(filename, min_magnitude):
+    """Загрузка данных из CSV и фильтрация по магнитуде."""
+    df = pd.read_csv(filename)
+    filtered_df = df[df['mag'] >= min_magnitude].reset_index(drop=True)
+    return filtered_df
 
 
 def main():
-    start_time = time.time()  # Засекаем общее время выполнения
+    start_time = time.time()
 
     # Получаем параметры от пользователя
-    n_samples, n_centers, cluster_std, random_state, n_clusters = get_user_input()
+    min_magnitude, n_clusters = get_user_input()
 
-    # Фиксируем число потоков (10)
+    # Фиксируем число потоков
     n_jobs = 10
 
-    # 1. Генерация данных
-    gen_start = time.time()
-    X, _ = make_blobs(
-        n_samples=n_samples,
-        centers=n_centers,
-        cluster_std=cluster_std,
-        random_state=random_state if random_state != 0 else None
-    )
-    gen_time = time.time() - gen_start
-    print(f"\nГенерация данных: {gen_time:.4f} сек")
+    # 1. Загрузка и фильтрация данных
+    data_load_start = time.time()
+    df = load_and_filter_data('2.5_day.csv', min_magnitude)
+    X = df[['longitude', 'latitude']].values
+    magnitudes = df['mag'].values
+    load_time = time.time() - data_load_start
+    print(f"\nЗагрузка и фильтрация данных: {load_time:.4f} сек")
+    print(f"Найдено {len(X)} землетрясений с магнитудой ≥ {min_magnitude}")
 
-    # 2. Визуализация исходных данных
-    plot1_start = time.time()
-    plt.figure(figsize=(12, 5))
-    plt.subplot(1, 2, 1)
-    plt.scatter(X[:, 0], X[:, 1], s=50)
-    plt.title("Исходные данные")
-    plt.xlabel("Признак 1")
-    plt.ylabel("Признак 2")
+    # 2. Построение дендрограммы
+    plt.figure(figsize=(15, 6))
 
-    # 3. Построение дендрограммы (параллельно, 10 потоков)
     dendro_start = time.time()
     with parallel_backend('threading', n_jobs=n_jobs):
         linked = linkage(X, method='ward', optimal_ordering=True)
     dendro_time = time.time() - dendro_start
     print(f"Построение дендрограммы (10 потоков): {dendro_time:.4f} сек")
 
-    plt.subplot(1, 2, 2)
+    plt.subplot(1, 2, 1)
     dendrogram(linked, orientation='top', distance_sort='descending', show_leaf_counts=True)
     plt.title("Дендрограмма")
     plt.xlabel("Индекс точки")
     plt.ylabel("Расстояние")
 
-    plt.tight_layout()
-    plot1_time = time.time() - plot1_start
-    print(f"Построение графиков (1): {plot1_time:.4f} сек")
-    plt.show()
-
-    # 4. Кластеризация (параллельно, 10 потоков)
+    # 3. Кластеризация и визуализация
     cluster_start = time.time()
     with parallel_backend('threading', n_jobs=n_jobs):
         cluster = AgglomerativeClustering(
             n_clusters=n_clusters,
-            affinity='euclidean',
+            metric='euclidean',
             linkage='ward'
         )
         labels = cluster.fit_predict(X)
     cluster_time = time.time() - cluster_start
     print(f"Кластеризация (10 потоков): {cluster_time:.4f} сек")
 
-    # 5. Визуализация кластеров
-    plot2_start = time.time()
-    plt.figure(figsize=(8, 6))
-    plt.scatter(X[:, 0], X[:, 1], c=labels, cmap='viridis', s=50)
-    plt.title(f"Агломеративная кластеризация (n_clusters={n_clusters})")
-    plt.xlabel("Признак 1")
-    plt.ylabel("Признак 2")
-    plt.colorbar()
-    plot2_time = time.time() - plot2_start
-    print(f"Построение графиков (2): {plot2_time:.4f} сек")
+    plt.subplot(1, 2, 2)
+    # Размер точек зависит от магнитуды
+    sizes = (magnitudes - min_magnitude + 1) * 20
+    scatter = plt.scatter(X[:, 0], X[:, 1], c=labels, cmap='tab20', s=sizes, alpha=0.7)
+
+    # Добавляем подписи индексов ко всем точкам
+    for i, (x, y) in enumerate(zip(X[:, 0], X[:, 1])):
+        plt.text(x, y, str(i), fontsize=8, ha='center', va='center',
+                 bbox=dict(facecolor='white', alpha=0.5, edgecolor='none', boxstyle='round,pad=0.2'))
+
+    plt.colorbar(scatter, label='Кластер')
+    plt.title(f"Кластеризация землетрясений (n_clusters={n_clusters})")
+    plt.xlabel("Долгота")
+    plt.ylabel("Широта")
+
+    plt.tight_layout()
     plt.show()
 
     total_time = time.time() - start_time
